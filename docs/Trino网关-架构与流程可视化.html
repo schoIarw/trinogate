@@ -1,0 +1,214 @@
+<html style="margin:0;padding:0;">
+<div style="width:100%;box-sizing:border-box;background:#f8fafc;color:#0f172a;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;padding:20px 16px 32px;">
+  <div style="font-size:20px;font-weight:700;margin-bottom:4px;">Trino 网关（Java）— 架构与查询生命周期</div>
+  <div style="font-size:13px;color:#475569;margin-bottom:18px;">示意结构：协议端点 + 认证 + SQL 校验规则引擎 + 流量治理 + 路由转发，经标准 Trino REST 协议连接客户端与 Trino 集群</div>
+
+  <!-- 一、架构总览 -->
+  <div style="font-size:15px;font-weight:700;color:#075985;margin:6px 0 8px;">① 架构总览</div>
+  <svg viewBox="0 0 1120 620" style="width:100%;height:auto;border:1px solid #e2e8f0;border-radius:8px;background:#ffffff;">
+    <!-- 客户端层 -->
+    <rect x="20" y="24" width="1080" height="92" rx="8" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+    <text x="40" y="48" font-size="14" font-weight="700" fill="#1d4ed8">客户端层（无感知，直连网关）</text>
+    <g font-size="13">
+      <rect x="40" y="60" width="150" height="40" rx="6" fill="#ffffff" stroke="#93c5fd"/>
+      <text x="115" y="85" text-anchor="middle" fill="#0f172a">DBeaver</text>
+      <rect x="205" y="60" width="150" height="40" rx="6" fill="#ffffff" stroke="#93c5fd"/>
+      <text x="280" y="85" text-anchor="middle" fill="#0f172a">JDBC / ODBC</text>
+      <rect x="370" y="60" width="150" height="40" rx="6" fill="#ffffff" stroke="#93c5fd"/>
+      <text x="445" y="85" text-anchor="middle" fill="#0f172a">Trino CLI</text>
+      <rect x="535" y="60" width="180" height="40" rx="6" fill="#ffffff" stroke="#93c5fd"/>
+      <text x="625" y="85" text-anchor="middle" fill="#0f172a">BI 工具（Superset 等）</text>
+      <rect x="730" y="60" width="170" height="40" rx="6" fill="#ffffff" stroke="#93c5fd"/>
+      <text x="815" y="85" text-anchor="middle" fill="#0f172a">自研应用</text>
+      <text x="960" y="82" font-size="12" fill="#475569">HTTPS · Trino REST 协议</text>
+    </g>
+    <line x1="560" y1="118" x2="560" y2="138" stroke="#2563eb" stroke-width="2" marker-end="url(#arr)"/>
+
+    <!-- 网关层 -->
+    <rect x="20" y="140" width="1080" height="330" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+    <text x="40" y="164" font-size="14" font-weight="700" fill="#0f766e">Trino 网关（Java，多模块）</text>
+    <g font-size="12.5">
+      <!-- 主链路 -->
+      <rect x="40" y="178" width="640" height="56" rx="6" fill="#ffffff" stroke="#14b8a6"/>
+      <text x="52" y="198" font-size="13" font-weight="700" fill="#0f766e">M1 协议端点层</text>
+      <text x="52" y="218" fill="#475569">POST /v1/statement · GET/DELETE nextUri · /v1/info /v1/status /metrics</text>
+      <line x1="360" y1="236" x2="360" y2="254" stroke="#14b8a6" stroke-width="2" marker-end="url(#arr)"/>
+      <rect x="40" y="256" width="640" height="50" rx="6" fill="#ffffff" stroke="#14b8a6"/>
+      <text x="52" y="276" font-size="13" font-weight="700" fill="#0f766e">M2 认证与身份层</text>
+      <text x="52" y="294" fill="#475569">LDAP / OAuth2-JWT / Kerberos / mTLS / 可信头 → 身份上下文</text>
+      <line x1="360" y1="308" x2="360" y2="326" stroke="#14b8a6" stroke-width="2" marker-end="url(#arr)"/>
+      <rect x="40" y="328" width="640" height="50" rx="6" fill="#ffffff" stroke="#14b8a6"/>
+      <text x="52" y="348" font-size="13" font-weight="700" fill="#0f766e">M3 SQL 校验与规则引擎</text>
+      <text x="52" y="366" fill="#475569">trino-parser AST · WHERE/LIMIT · 敏感表 · 动态加载（文件/DB/脚本/SPI）</text>
+      <line x1="360" y1="380" x2="360" y2="398" stroke="#14b8a6" stroke-width="2" marker-end="url(#arr)"/>
+      <rect x="40" y="400" width="640" height="56" rx="6" fill="#ffffff" stroke="#14b8a6"/>
+      <text x="52" y="420" font-size="13" font-weight="700" fill="#0f766e">M4 流量治理层</text>
+      <text x="52" y="438" fill="#475569">限流（每分钟 SQL 数）· 排队（容量/超时）· 并发控制 · 429 + Retry-After</text>
+      <line x1="360" y1="458" x2="360" y2="476" stroke="#14b8a6" stroke-width="2" marker-end="url(#arr)"/>
+      <rect x="40" y="478" width="640" height="50" rx="6" fill="#ffffff" stroke="#14b8a6"/>
+      <text x="52" y="498" font-size="13" font-weight="700" fill="#0f766e">M5 路由层 + M6 转发层</text>
+      <text x="52" y="516" fill="#475569">集群注册 · 健康检查(INFO_API/METRICS) · 路由策略 · TrinoClient 转发 · nextUri 重写</text>
+
+      <!-- 辅助模块 -->
+      <rect x="700" y="178" width="380" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+      <text x="712" y="198" font-size="13" font-weight="700" fill="#334155">M7 存储与配置</text>
+      <text x="712" y="218" fill="#64748b">规则/限流策略/查询历史/网关状态（Flyway）</text>
+      <rect x="700" y="246" width="380" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+      <text x="712" y="266" font-size="13" font-weight="700" fill="#334155">M8 管理 API 与观测</text>
+      <text x="712" y="286" fill="#64748b">规则 CRUD / 限流热更新 / 指标 / 审计 / 查询历史检索</text>
+      <rect x="700" y="314" width="380" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+      <text x="712" y="334" font-size="13" font-weight="700" fill="#334155">M9 高可用</text>
+      <text x="712" y="354" fill="#64748b">多实例 · Redis 分布式限流 · nextUri 亲和 · Docker/Helm</text>
+      <rect x="700" y="382" width="380" height="80" rx="6" fill="#fffbeb" stroke="#fcd34d"/>
+      <text x="712" y="404" font-size="13" font-weight="700" fill="#92400e">身份传播（关键决策）</text>
+      <text x="712" y="424" fill="#78350f">透传模式：原样转发凭据/令牌</text>
+      <text x="712" y="442" fill="#78350f">伪装模式：服务账号 + X-Trino-User 身份头</text>
+    </g>
+    <line x1="360" y1="530" x2="360" y2="556" stroke="#2563eb" stroke-width="2" marker-end="url(#arr)"/>
+    <text x="372" y="548" font-size="12" fill="#475569">Trino REST 协议（网关→后端）</text>
+
+    <!-- Trino 集群 -->
+    <rect x="20" y="558" width="640" height="48" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+    <text x="40" y="578" font-size="13" font-weight="700" fill="#991b1b">Trino 集群</text>
+    <rect x="160" y="566" width="150" height="32" rx="5" fill="#ffffff" stroke="#fca5a5"/>
+    <text x="235" y="586" text-anchor="middle" font-size="12.5" fill="#0f172a">Coordinator</text>
+    <rect x="330" y="566" width="150" height="32" rx="5" fill="#ffffff" stroke="#fca5a5"/>
+    <text x="405" y="586" text-anchor="middle" font-size="12.5" fill="#0f172a">Workers …</text>
+    <text x="500" y="586" font-size="12" fill="#475569">（可多集群路由）</text>
+
+    <!-- 基础设施 -->
+    <rect x="700" y="558" width="380" height="48" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="712" y="578" font-size="13" font-weight="700" fill="#334155">基础设施</text>
+    <rect x="820" y="566" width="110" height="32" rx="5" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="875" y="586" text-anchor="middle" font-size="12.5" fill="#0f172a">MySQL/PG</text>
+    <rect x="945" y="566" width="90" height="32" rx="5" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="990" y="586" text-anchor="middle" font-size="12.5" fill="#0f172a">Redis</text>
+    <rect x="700" y="530" width="380" height="26" rx="4" fill="#f1f5f9"/>
+    <text x="890" y="548" text-anchor="middle" font-size="12" fill="#475569">管理面：Prometheus / Grafana / Admin API（虚线）</text>
+    <line x1="700" y1="543" x2="880" y2="543" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <line x1="680" y1="450" x2="680" y2="543" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <line x1="780" y1="543" x2="780" y2="558" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,4"/>
+    <defs>
+      <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 Z" fill="#2563eb"/></marker>
+    </defs>
+  </svg>
+
+  <!-- 二、查询生命周期 -->
+  <div style="font-size:15px;font-weight:700;color:#075985;margin:22px 0 8px;">② 查询生命周期（POST 提交 → 轮询取数 → 结束）</div>
+  <svg viewBox="0 0 1120 640" style="width:100%;height:auto;border:1px solid #e2e8f0;border-radius:8px;background:#ffffff;">
+    <defs>
+      <marker id="arrB" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 Z" fill="#0d9488"/></marker>
+    </defs>
+    <!-- 泳道 -->
+    <rect x="20" y="30" width="300" height="590" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
+    <rect x="410" y="30" width="300" height="590" rx="8" fill="#f0fdfa" stroke="#99f6e4"/>
+    <rect x="800" y="30" width="300" height="590" rx="8" fill="#fef2f2" stroke="#fecaca"/>
+    <text x="170" y="54" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">DBeaver / JDBC</text>
+    <text x="560" y="54" text-anchor="middle" font-size="14" font-weight="700" fill="#0f766e">Trino 网关</text>
+    <text x="950" y="54" text-anchor="middle" font-size="14" font-weight="700" fill="#991b1b">Trino 集群</text>
+
+    <!-- 步骤 -->
+    <g font-size="12.5">
+      <!-- 1 -->
+      <rect x="40" y="74" width="260" height="34" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+      <text x="50" y="95" fill="#0f172a">1. POST /v1/statement</text>
+      <text x="50" y="107" fill="#64748b" font-size="11">SQL + X-Trino-* 头</text>
+      <line x1="302" y1="92" x2="408" y2="92" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <!-- 2 -->
+      <rect x="430" y="74" width="260" height="40" rx="5" fill="#ccfbf1" stroke="#14b8a6"/>
+      <text x="440" y="92" font-weight="700" fill="#0f766e">2. 认证 + 身份上下文</text>
+      <text x="440" y="107" fill="#0f766e" font-size="11">LDAP / JWT / Kerberos / mTLS</text>
+      <line x1="560" y1="116" x2="560" y2="140" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <!-- 3 -->
+      <rect x="430" y="142" width="260" height="40" rx="5" fill="#ccfbf1" stroke="#14b8a6"/>
+      <text x="440" y="160" font-weight="700" fill="#0f766e">3. 路由决策 → 选定后端</text>
+      <text x="440" y="175" fill="#0f766e" font-size="11">轮询 / 查询数 / 规则</text>
+      <line x1="560" y1="184" x2="560" y2="208" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <!-- 4 -->
+      <rect x="430" y="210" width="260" height="52" rx="5" fill="#fff7ed" stroke="#fb923c"/>
+      <text x="440" y="228" font-weight="700" fill="#9a3412">4. SQL 解析 + 规则引擎</text>
+      <text x="440" y="243" fill="#9a3412" font-size="11">WHERE / LIMIT / 敏感表 / 动态规则</text>
+      <text x="440" y="256" fill="#9a3412" font-size="11">拒绝 → 200 + QueryResults.error</text>
+      <line x1="560" y1="264" x2="560" y2="288" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <!-- 5 -->
+      <rect x="430" y="290" width="260" height="52" rx="5" fill="#fffbeb" stroke="#fcd34d"/>
+      <text x="440" y="308" font-weight="700" fill="#92400e">5. 限流 + 排队 + 并发检查</text>
+      <text x="440" y="323" fill="#92400e" font-size="11">每分钟 SQL 数 · 队列容量/超时</text>
+      <text x="440" y="336" fill="#92400e" font-size="11">超限 → 429 + Retry-After</text>
+      <line x1="560" y1="344" x2="560" y2="368" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <!-- 6 -->
+      <rect x="430" y="370" width="260" height="40" rx="5" fill="#ccfbf1" stroke="#14b8a6"/>
+      <text x="440" y="388" font-weight="700" fill="#0f766e">6. TrinoClient 转发提交</text>
+      <text x="440" y="403" fill="#0f766e" font-size="11">服务账号 / 透传凭据 + 身份头</text>
+      <line x1="692" y1="390" x2="798" y2="390" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <!-- 7 -->
+      <rect x="820" y="370" width="260" height="40" rx="5" fill="#ffffff" stroke="#f87171"/>
+      <text x="830" y="388" font-weight="700" fill="#991b1b">7. 执行并返回 QueryResults</text>
+      <text x="830" y="403" fill="#991b1b" font-size="11">id · nextUri · columns · data</text>
+      <line x1="820" y1="390" x2="694" y2="390" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <!-- 8 -->
+      <rect x="430" y="426" width="260" height="52" rx="5" fill="#ccfbf1" stroke="#14b8a6"/>
+      <text x="440" y="444" font-weight="700" fill="#0f766e">8. 建立映射 + 重写 nextUri</text>
+      <text x="440" y="459" fill="#0f766e" font-size="11">gatewayId → 后端 id + 集群 + 上下文</text>
+      <text x="440" y="472" fill="#0f766e" font-size="11">nextUri 改为指向网关</text>
+      <line x1="430" y1="452" x2="304" y2="452" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <!-- 9 -->
+      <rect x="40" y="430" width="260" height="48" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+      <text x="50" y="450" fill="#0f172a">9. 200 QueryResults + Set-* 响应头</text>
+      <text x="50" y="466" fill="#64748b" font-size="11">会话/事务/预编译状态回写客户端</text>
+      <!-- 10 轮询循环 -->
+      <line x1="170" y1="492" x2="170" y2="528" stroke="#0d9488" stroke-width="2"/>
+      <rect x="40" y="530" width="260" height="34" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+      <text x="50" y="552" fill="#0f172a">10. 循环 GET nextUri 取数</text>
+      <line x1="302" y1="548" x2="408" y2="548" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <rect x="430" y="530" width="260" height="34" rx="5" fill="#ccfbf1" stroke="#14b8a6"/>
+      <text x="440" y="552" fill="#0f766e">11. 按映射向后端取下一页</text>
+      <line x1="692" y1="548" x2="798" y2="548" stroke="#0d9488" stroke-width="2" marker-end="url(#arrB)"/>
+      <rect x="820" y="530" width="260" height="34" rx="5" fill="#ffffff" stroke="#f87171"/>
+      <text x="830" y="552" fill="#991b1b">12. 返回下一批结果（重写）</text>
+      <!-- 结束 -->
+      <rect x="430" y="584" width="260" height="34" rx="5" fill="#e2e8f0" stroke="#94a3b8"/>
+      <text x="440" y="606" fill="#334155">13. nextUri 消失 → 清理映射、审计落库</text>
+      <text x="170" y="606" text-anchor="middle" font-size="11" fill="#64748b">DELETE nextUri = 取消查询（随时可触发）</text>
+    </g>
+  </svg>
+
+  <!-- 三、模块清单 -->
+  <div style="font-size:15px;font-weight:700;color:#075985;margin:22px 0 8px;">③ 模块清单与职责</div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px;width:100%;box-sizing:border-box;">
+    <div style="flex:1 1 340px;min-width:320px;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;box-sizing:border-box;">
+      <div style="font-weight:700;color:#0f766e;margin-bottom:6px;">网关核心链路</div>
+      <div style="font-size:13px;line-height:1.9;color:#334155;">
+        <b>gateway-protocol</b>：/v1/statement 端点、QueryResults 编解码、nextUri 重写、查询映射<br>
+        <b>gateway-auth</b>：LDAP/JWT/Kerberos/mTLS/可信头认证、身份传播<br>
+        <b>gateway-sql</b>：trino-parser 解析、语句分类、AST 特征提取<br>
+        <b>gateway-rules</b>：规则引擎、文件/DB/脚本/SPI 动态加载、Admin API<br>
+        <b>gateway-flow</b>：限流（每分钟 SQL 数）、排队（容量/超时）、并发控制<br>
+        <b>gateway-routing</b>：集群注册、健康检查（INFO_API/METRICS）、路由策略<br>
+        <b>gateway-proxy</b>：后端 TrinoClient 转发、取消、空闲自动终止
+      </div>
+    </div>
+    <div style="flex:1 1 340px;min-width:320px;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;box-sizing:border-box;">
+      <div style="font-weight:700;color:#334155;margin-bottom:6px;">支撑与管理</div>
+      <div style="font-size:13px;line-height:1.9;color:#334155;">
+        <b>gateway-store</b>：MySQL/PG + Flyway；规则、限流策略、查询历史（SQL 脱敏）、HA 状态<br>
+        <b>gateway-admin</b>：规则 CRUD/dry-run/回滚、限流热更新、查询 kill<br>
+        <b>gateway-observability</b>：Prometheus 指标、结构化审计、traceToken 透传<br>
+        <b>gateway-config</b>：YAML + 环境变量，热更新<br>
+        <b>gateway-server</b>：Jetty 异步 HTTP、TLS 终止、过滤器链<br>
+        <b>gateway-app</b>：启动装配（JAR / Docker / Helm）
+      </div>
+    </div>
+    <div style="flex:1 1 340px;min-width:320px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px;box-sizing:border-box;">
+      <div style="font-weight:700;color:#92400e;margin-bottom:6px;">关键语义（协议兼容）</div>
+      <div style="font-size:13px;line-height:1.9;color:#78350f;">
+        校验拒绝 → <b>HTTP 200 + QueryResults.error</b>（DBeaver 显示清晰 SQL 错误）<br>
+        限流/排队 → <b>HTTP 429 + Retry-After</b>（客户端自动重试）<br>
+        nextUri 缺失 = 查询结束；首请求头记忆、轮询不带头<br>
+        Set-Session / Started-Transaction / Added-Prepare 响应头必须透传<br>
+        元数据语句（SHOW/DESCRIBE/information_schema）默认放行
+      </div>
+    </div>
+  </div>
+</div>
+</html>
