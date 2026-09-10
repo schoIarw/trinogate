@@ -1,0 +1,28 @@
+# 动态校验规则示例（放置于 validation.rulesPath 指向的目录，*.yaml 会被热加载）
+# condition 三选一（互斥）：forbiddenTables | statementKinds | sqlContains
+
+- id: block-sensitive-tables
+  name: 禁止访问敏感表
+  action: REJECT
+  appliesTo: [QUERY]
+  condition:
+    forbiddenTables:
+      - "ods.pii.user_profile"
+      - "ods.pii.phone"
+  message: "禁止访问敏感表：%s"
+
+- id: warn-select-star
+  name: 全表 SELECT * 告警
+  action: WARN
+  appliesTo: [QUERY]
+  condition:
+    sqlContains: "SELECT *"
+  message: "建议不要使用 SELECT *"
+
+- id: block-insert-to-ods
+  name: 禁止写入 ODS 层
+  action: REJECT
+  appliesTo: [QUERY, INSERT, UPDATE, DELETE, MERGE]
+  condition:
+    sqlContains: "ods."
+  message: "禁止直接写入 ODS 层，请走数据开发流程"

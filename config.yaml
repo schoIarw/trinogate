@@ -1,0 +1,72 @@
+# Trino Gateway 示例配置
+# 运行: java -jar trinogate-app/target/trinogate.jar config.yaml
+# 或:   TRINOGATE_CONFIG=config.yaml java -jar trinogate-app/target/trinogate.jar
+
+server:
+  httpPort: 8080
+  # 回写给客户端的 nextUri 基础地址（网关对外可访问地址）
+  gatewayBaseUri: "http://127.0.0.1:8080"
+
+auth:
+  # header | basic | jwt
+  type: header
+  headerName: X-Auth-User
+  # basic 认证时使用的用户文件（sha256 密码）
+  usersFile: "users.yaml"
+  # jwt 认证时的密钥与校验参数
+  jwtSecret: "change-me-please"
+  jwtIssuer: "trinogate"
+  jwtAudience: "trino-clients"
+  jwtLeewaySeconds: 60
+
+validation:
+  # REJECT | WARN（WARN 只记日志不拦截）
+  policy: REJECT
+  # 动态规则目录（*.yaml 热加载）
+  rulesPath: "rules"
+  # 规则文件轮询间隔（秒）
+  rulesPollSeconds: 5
+  # 内置规则：SELECT 必须带 WHERE 或 LIMIT
+  selectRequireWhereOrLimit: true
+  exemptNoFrom: true
+  includeSubqueries: false
+  # SHOW / DESCRIBE / USE 等元数据语句放行
+  allowMetadataStatements: true
+
+flow:
+  rateLimit:
+    mode: fixedWindow        # fixedWindow | redis
+    defaultPerMinute: 60     # 全局默认每分钟 SQL 数
+    perUser:                 # 按用户名覆盖
+      analyst: 120
+      admin: 1000
+    redis:                   # mode=redis 时使用
+      host: 127.0.0.1
+      port: 6379
+  queue:
+    maxGlobalPending: 200    # 全局排队上限
+    maxPerUserPending: 20    # 单用户排队上限
+    timeoutSeconds: 30       # 排队等待并发槽位超时
+  concurrency:
+    maxRunningGlobal: 100    # 全局并发执行上限
+    maxRunningPerUser: 10    # 单用户并发执行上限
+
+routing:
+  strategy: roundRobin
+  healthCheck:
+    enabled: true
+    type: INFO_API
+    intervalSeconds: 10
+  clusters:
+    - name: trino-dev
+      url: "http://127.0.0.1:8090"
+      active: true
+    # - name: trino-prod
+    #   url: "http://trino-prod.example.com:8443"
+    #   active: false
+
+proxy:
+  connectTimeoutMs: 5000
+  readTimeoutMs: 30000
+  # 客户端轮询空闲超过该时间自动取消后端查询
+  idleTimeoutSeconds: 60
