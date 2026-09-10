@@ -1,0 +1,9 @@
+# CI 冒烟测试的动态规则文件（验证 YAML 文件热加载通道）
+- id: ci-block-prod
+  name: 禁止访问 prod 库（CI 文件规则）
+  action: REJECT
+  appliesTo: [QUERY]
+  condition:
+    forbiddenTables:
+      - "prod.orders"
+  message: "CI 文件规则：禁止访问 prod 表 %s"

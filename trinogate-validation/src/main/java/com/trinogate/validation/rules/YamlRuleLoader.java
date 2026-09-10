@@ -1,6 +1,7 @@
 package com.trinogate.validation.rules;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.slf4j.Logger;
@@ -16,8 +17,9 @@ import java.util.List;
 
 /**
  * Loads rule definitions from YAML files under a rules directory.
- * Every {@code *.yaml} file may contain a top-level {@code rules: [...]} list.
- * The {@link RuleManager} polls this directory for hot reload.
+ * Every {@code *.yaml} file may contain either a plain list of rule definitions
+ * (the recommended form) or a top-level {@code rules: [...]} wrapper. The
+ * {@link RuleManager} polls this directory for hot reload.
  */
 public class YamlRuleLoader {
 
@@ -49,16 +51,27 @@ public class YamlRuleLoader {
     private List<SqlRule> loadFile(Path file) {
         try {
             String text = Files.readString(file, StandardCharsets.UTF_8);
-            RulesFile rulesFile = YAML.readValue(text, RulesFile.class);
-            List<SqlRule> rules = new ArrayList<>();
-            if (rulesFile.rules != null) {
-                for (RuleDefinition def : rulesFile.rules) {
-                    if (def.id == null || def.id.isBlank()) {
-                        log.warn("Ignoring rule without id in {}", file);
-                        continue;
-                    }
-                    rules.add(new DynamicRule(def));
+            JsonNode root = YAML.readTree(text);
+            List<RuleDefinition> definitions;
+            if (root != null && root.isArray()) {
+                definitions = new ArrayList<>();
+                for (JsonNode node : root) {
+                    definitions.add(YAML.treeToValue(node, RuleDefinition.class));
                 }
+            } else if (root != null && root.has("rules")) {
+                RulesFile rulesFile = YAML.treeToValue(root, RulesFile.class);
+                definitions = rulesFile.rules == null ? List.of() : rulesFile.rules;
+            } else {
+                log.warn("Ignoring rules file {}: expected a list or a 'rules:' wrapper", file);
+                return List.of();
+            }
+            List<SqlRule> rules = new ArrayList<>();
+            for (RuleDefinition def : definitions) {
+                if (def.id == null || def.id.isBlank()) {
+                    log.warn("Ignoring rule without id in {}", file);
+                    continue;
+                }
+                rules.add(new DynamicRule(def));
             }
             log.info("Loaded {} rules from {}", rules.size(), file);
             return rules;

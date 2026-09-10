@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build, unit/integration tests & smoke test (JDK 21)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build & run unit + integration tests
+        run: ./mvnw -B -ntp verify
+        env:
+          MAVEN_OPTS: -Dmaven.repo.local=$HOME/.m2/repository
+
+      - name: Show test reports
+        if: always()
+        run: |
+          for f in trinogate-app/target/surefire-reports/*.txt; do
+            [ -f "$f" ] && echo "--- $f ---" && cat "$f"
+          done
+
+      - name: End-to-end smoke test (real fat jar + mock Trino)
+        run: bash scripts/smoke-test.sh trinogate-app/target/trinogate.jar
+
+      - name: Upload gateway fat jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: trinogate-jar
+          path: trinogate-app/target/trinogate.jar
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload gateway log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs
+          path: |
+            /tmp/gateway.log
+            /tmp/mock-trino.log
+          if-no-files-found: ignore

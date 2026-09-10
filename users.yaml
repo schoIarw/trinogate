@@ -1,8 +1,6 @@
-# basic 认证用户文件（auth.type: basic 时生效）
-# 密码为 sha256 十六进制；示例密码均为 "trino123"
+# basic 认证用户文件（auth.type: basic 时生效，默认路径 ./users.yaml）
+# passwordSha256 为明文密码的 SHA-256 十六进制；示例密码均为 "trino123"
 # 生成方式: printf 'your-password' | sha256sum
 users:
-  alice:
-    password: "4d6a7f7c0441a3483f985e315cd40712c3f758ce5400e0ed27903623d67721b2"
-  admin:
-    password: "4d6a7f7c0441a3483f985e315cd40712c3f758ce5400e0ed27903623d67721b2"
+  - { username: alice, passwordSha256: "4d6a7f7c0441a3483f985e315cd40712c3f758ce5400e0ed27903623d67721b2" }
+  - { username: admin, passwordSha256: "4d6a7f7c0441a3483f985e315cd40712c3f758ce5400e0ed27903623d67721b2" }

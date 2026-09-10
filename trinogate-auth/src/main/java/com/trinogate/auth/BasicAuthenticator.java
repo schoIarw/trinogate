@@ -31,7 +31,6 @@ public class BasicAuthenticator implements Authenticator {
 
     private static final Logger log = LoggerFactory.getLogger(BasicAuthenticator.class);
     private static final String BASIC_PREFIX = "Basic ";
-    private static final String SHA256_PREFIX = "sha256:";
 
     private final UserStore userStore;
 
@@ -102,7 +101,14 @@ public class BasicAuthenticator implements Authenticator {
                 Map<String, String> map = new ConcurrentHashMap<>();
                 if (file.users != null) {
                     for (UserEntry u : file.users) {
-                        String stored = u.password != null ? u.password : SHA256_PREFIX + sha256Hex(u.passwordSha256 == null ? "" : u.passwordSha256);
+                        if (u.username == null || u.username.isBlank()) {
+                            continue;
+                        }
+                        // passwordSha256 holds the hex SHA-256 of the plaintext password;
+                        // verify() compares the incoming password hash against it directly.
+                        String stored = u.password != null
+                                ? "plain:" + u.password
+                                : "sha256:" + (u.passwordSha256 == null ? "" : u.passwordSha256);
                         map.put(u.username, stored);
                     }
                 }
@@ -119,10 +125,10 @@ public class BasicAuthenticator implements Authenticator {
             if (stored == null) {
                 return false;
             }
-            if (stored.startsWith(SHA256_PREFIX)) {
-                return constantTimeEquals(stored.substring(SHA256_PREFIX.length()), sha256Hex(password));
+            if (stored.startsWith("sha256:")) {
+                return constantTimeEquals(stored.substring("sha256:".length()), sha256Hex(password));
             }
-            return constantTimeEquals(stored, password);
+            return constantTimeEquals(stored.substring("plain:".length()), password);
         }
 
         private static String sha256Hex(String value) {

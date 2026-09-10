@@ -1,0 +1,43 @@
+# CI 冒烟测试专用网关配置（scripts/smoke-test.sh 使用）
+server:
+  httpPort: 19090
+  gatewayBaseUri: "http://127.0.0.1:19090"
+
+auth:
+  type: header
+  headerName: X-Auth-User
+
+validation:
+  policy: REJECT
+  rulesPath: "scripts/ci-rules"
+  rulesPollSeconds: 5
+  selectRequireWhereOrLimit: true
+  exemptNoFrom: true
+  allowMetadataStatements: true
+
+flow:
+  rateLimit:
+    mode: fixedWindow
+    defaultPerMinute: 1000
+    perUser: { limited: 3 }
+  queue:
+    maxGlobalPending: 50
+    maxPerUserPending: 10
+    timeoutSeconds: 5
+  concurrency:
+    maxRunningGlobal: 20
+    maxRunningPerUser: 5
+
+routing:
+  strategy: roundRobin
+  healthCheck:
+    enabled: true
+    type: INFO_API
+    intervalSeconds: 5
+  clusters:
+    - { name: mock, url: "http://127.0.0.1:19091", active: true }
+
+proxy:
+  connectTimeoutMs: 3000
+  readTimeoutMs: 8000
+  idleTimeoutSeconds: 30
